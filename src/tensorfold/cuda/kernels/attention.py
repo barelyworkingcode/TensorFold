@@ -338,3 +338,52 @@ def attention(q: torch.Tensor, k_nodes: torch.Tensor, v_nodes: torch.Tensor, off
     _merge[(w, hk, d // MERGE_COLUMNS)](partial_o, partial_m, partial_l, out, p.streams, p.rows, w, H=h, D=d, G=g,
                                         DS=MERGE_COLUMNS, CH=CHUNK, GR=GROUP, num_warps=4)
     return out
+
+
+# Local opt-in INT8 extension. The released BF16 kernels and plans stay intact.
+PACKED_TILE = 32
+_bf16_plan_host, _bf16_padded_host = plan_host, padded_host
+_bf16_plan, _bf16_from_packed = plan, from_packed
+_bf16_offsets, _bf16_attention, _bf16_slots = offsets, attention, slots
+
+def _int8():
+    from . import attention_int8
+    return attention_int8
+
+def tile_for(kv_dtype):
+    return PACKED_TILE if kv_dtype == "int8" else QUERY_TILE
+
+def slots(p, w, tile=QUERY_TILE):
+    return -(-(p + w) // CHUNK) if tile == PACKED_TILE else _bf16_slots(p, w)
+
+def plan_host(parents, lengths, group, tile=QUERY_TILE):
+    if tile == PACKED_TILE:
+        return _int8().plan_host(parents, lengths, group, tile)
+    return _bf16_plan_host(parents, lengths, group)
+
+def padded_host(parents, context, group, tile=QUERY_TILE):
+    if tile == PACKED_TILE:
+        return _int8().padded_host(parents, context, group, tile)
+    return _bf16_padded_host(parents, context, group)
+
+def plan(parents, lengths, group, device, *, tile=QUERY_TILE):
+    if tile == PACKED_TILE:
+        return _int8().plan(parents, lengths, group, device, tile=tile)
+    return _bf16_plan(parents, lengths, group, device)
+
+def from_packed(dev, streams, width, n_items, chunks, *, tile=QUERY_TILE):
+    if tile == PACKED_TILE:
+        return _int8().from_packed(dev, streams, width, n_items, chunks, tile=tile)
+    return _bf16_from_packed(dev, streams, width, n_items, chunks)
+
+def offsets(caches, device):
+    if any(t.dtype == torch.int8 for pair in caches for t in pair):
+        return _int8().offsets(caches, device)
+    return _bf16_offsets(caches, device)
+
+def attention(q, k_nodes, v_nodes, offs, p, *, scale):
+    if k_nodes.dtype == torch.int8:
+        if getattr(p, "tile", QUERY_TILE) != PACKED_TILE:
+            raise ValueError("a packed int8 window's plan needs tile=32")
+        return _int8().attention(q, k_nodes, v_nodes, offs, p, scale=scale)
+    return _bf16_attention(q, k_nodes, v_nodes, offs, p, scale=scale)
