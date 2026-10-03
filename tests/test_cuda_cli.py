@@ -176,6 +176,10 @@ def test_kv_dtype_reaches_only_the_families_that_declare_it(tmp_path, monkeypatc
     from tensorfold.families.qwen3_5.cuda import engine as dense_engine
     from tensorfold.families.qwen4_exp.cuda import engine as fn_engine
 
+    # These are wiring tests with stub engines, independent of the physical GPU.
+    from tensorfold.cuda import build
+    monkeypatch.setattr(build, "refuse_small_gpu", lambda: None)
+
     made = []
     monkeypatch.setattr(fn_engine, "FlashNextEngine", lambda *a, **k: made.append(k) or SimpleNamespace(**k))
     monkeypatch.setattr(dense_engine, "Qwen27Engine", lambda *a, **k: made.append(k) or SimpleNamespace(**k))
@@ -251,6 +255,10 @@ def test_no_cuda_engine_serves_one_token_a_round_by_default(tmp_path, monkeypatc
     from tensorfold.families.glm5_next.cuda import engine as glm_engine
     from tensorfold.families.qwen3_5.cuda import engine as q27_engine
     from tensorfold.families.qwen4_exp.cuda import engine as fn_engine
+
+    # These are wiring tests with stub engines, independent of the physical GPU.
+    from tensorfold.cuda import build
+    monkeypatch.setattr(build, "refuse_small_gpu", lambda: None)
 
     made = []
     stub = lambda *a, **k: made.append(k) or SimpleNamespace(**k)      # noqa: E731
