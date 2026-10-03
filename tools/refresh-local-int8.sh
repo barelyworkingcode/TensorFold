@@ -9,7 +9,11 @@ git -C "$repo_dir" fetch origin --tags
 git -C "$repo_dir" rev-parse --verify "refs/tags/$release_tag"
 destination="$(dirname "$repo_dir")/TensorFold-int8-$release_tag"
 branch="local/qwen-int8-$release_tag"
-mapfile -t patch_commits < <(git -C "$repo_dir" rev-list --reverse v0.6.4..HEAD)
+base_tag=$(cat "$repo_dir/LOCAL_BASE")
+mapfile -t patch_commits < <(git -C "$repo_dir" rev-list --reverse "$base_tag..HEAD")
 git -C "$repo_dir" worktree add -b "$branch" "$destination" "$release_tag"
 git -C "$destination" cherry-pick "${patch_commits[@]}"
+printf '%s\n' "$release_tag" > "$destination/LOCAL_BASE"
+git -C "$destination" add LOCAL_BASE
+git -C "$destination" commit -m "chore: track local patch base at $release_tag"
 echo "Prepared $destination. Resolve any conflicts, validate, then install explicitly."
